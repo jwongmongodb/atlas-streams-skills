@@ -1,6 +1,6 @@
 # streams-mcp-skills
 
-Claude Code skills for building, operating, and debugging Atlas Stream Processing through the [MongoDB MCP Server](https://github.com/mongodb-js/mongodb-mcp-server).
+Claude Code skills for building, operating, and debugging Atlas Stream Processing through the [MongoDB MCP Server](https://github.com/jwongmongodb/mongodb-mcp-server/tree/option-4-intent-tools).
 
 ## What's included
 
