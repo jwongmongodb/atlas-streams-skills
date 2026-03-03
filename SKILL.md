@@ -1,8 +1,8 @@
 ---
 name: streams-mcp-tools
 description: Build, operate, and debug Atlas Stream Processing through the MongoDB MCP Server. Use when user says "set up a Kafka pipeline", "deploy a stream processor", "add a connection to my workspace", "why is my processor failing", "stop my processor", "delete my workspace", "show me my Streams workspaces", or any task involving Atlas Stream Processing workspaces, connections, or processors. Do NOT use for general MongoDB queries, Atlas cluster management, or non-Streams Atlas operations.
-version: 3.0.0
-user-invocable: false
+version: 3.0.1
+user-invocable: true
 ---
 
 # Atlas Stream Processing — MCP Tool Skill
@@ -91,6 +91,12 @@ Leave empty: all workspace and processor fields
 Fill: `projectId`, `workspaceName`, `processorName`, `pipeline`, `dlq` (recommended), `autoStart` (optional)
 Leave empty: all workspace and connection fields
 (See [references/pipeline-patterns.md](references/pipeline-patterns.md) for pipeline examples)
+
+**Before creating a processor:** Validate the pipeline against authoritative sources before calling `atlas-streams-build`:
+1. **`search-knowledge`** — call with a query like "Atlas Stream Processing $emit S3" to confirm the correct `$emit`/`$merge` field names. This is the authoritative source for exact field schemas, especially for less common sink types (S3, Kinesis, Lambda).
+2. **ASP_example repo** — for end-to-end pipeline patterns, fetch the relevant quickstart or example from `https://raw.githubusercontent.com/mongodb/ASP_example/main/` using `WebFetch`. Key files: `quickstarts/` (6 quickstarts), `example_processors/` (15+ patterns), `code_snippets/` (reusable stages). The repo is continuously updated by MongoDB engineering and is the best source for validated pipeline compositions.
+
+The reference files in this skill cover common patterns, but cross-checking with the above sources prevents field name errors and invalid stage combinations.
 
 **resource = "privatelink":**
 Fill: `projectId`, `workspaceName`, `privateLinkProvider`, `privateLinkConfig`

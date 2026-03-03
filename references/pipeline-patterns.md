@@ -121,10 +121,11 @@ Key formats: `string`, `json`, `int`, `long`, `binData`. Tombstone support: `"to
 ```json
 {"$emit": {
   "connectionName": "my-s3", "bucket": "my-bucket",
-  "prefix": {"$concat": ["data/", {"$dateToString": {"format": "%Y/%m/%d", "date": "$timestamp"}}]},
-  "writeOptions": {"count": 1000}
+  "path": {"$concat": ["data/", {"$dateToString": {"format": "%Y/%m/%d", "date": "$timestamp"}}]},
+  "config": {"outputFormat": "relaxedJson"}
 }}
 ```
+Fields: `connectionName` (required), `bucket` (required), `path` (required — key prefix string or expression), `region` (optional), `config` (optional — `outputFormat`, `writeOptions`, `delimiter`, `compression`).
 
 ## Window Patterns
 
