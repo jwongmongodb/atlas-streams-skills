@@ -3,19 +3,31 @@
 **Official examples repo**: https://github.com/mongodb/ASP_example
 Always consult the official repo for the latest validated patterns before creating processors.
 
-## Pipeline Stage Categories
+## Stage Quick-Reference
 
-Stages must follow this ordering. Understanding categories helps compose valid pipelines:
+| Stage | Purpose | Category |
+|-------|---------|----------|
+| `$source` | Data ingress (Kafka, Cluster, Kinesis, Sample) | Source (required, first) |
+| `$match` | Filter documents | Stateless |
+| `$project` | Select/reshape fields | Stateless |
+| `$addFields` | Add computed fields | Stateless |
+| `$unset` | Remove fields | Stateless |
+| `$unwind` | Explode arrays into documents | Stateless |
+| `$replaceRoot` | Promote nested document to root | Stateless |
+| `$redact` | Field-level access control | Stateless |
+| `$validate` | Schema enforcement (route invalid to DLQ) | Validation |
+| `$lookup` | Enrich from Atlas collection | Enrichment |
+| `$https` | Enrich from HTTP API | Enrichment |
+| `$externalFunction` | Invoke Lambda (mid-pipeline, NOT terminal) | Enrichment |
+| `$tumblingWindow` | Fixed-size non-overlapping windows | Stateful |
+| `$hoppingWindow` | Fixed-size overlapping windows | Stateful |
+| `$sessionWindow` | Gap-based per-key windows | Stateful |
+| `$function` | JavaScript UDF (requires SP30+) | Custom Code |
+| `$group` | Aggregate (inside windows) | Stateful |
+| `$merge` | Write to Atlas collection | Output (required, last) |
+| `$emit` | Write to Kafka, Kinesis, or S3 | Output (required, last) |
 
-| Category | Stages | Rules |
-|----------|--------|-------|
-| **Source** (1, required) | `$source` | Must be first. One per pipeline. |
-| **Stateless Processing** | `$match`, `$project`, `$addFields`, `$unset`, `$unwind`, `$replaceRoot`, `$redact` | No state or memory overhead. Place `$match` first to reduce volume. |
-| **Enrichment** | `$lookup`, `$https`, `$externalFunction` | I/O-bound. Use `parallelism` for throughput. Place `$https` after windows. `$externalFunction` for Lambda (mid-pipeline, not terminal). |
-| **Validation** | `$validate` | Schema enforcement. Place early to catch bad data before expensive stages. |
-| **Stateful/Window** | `$tumblingWindow`, `$hoppingWindow`, `$sessionWindow` | Accumulates state in memory. Monitor `memoryUsageBytes`. |
-| **Custom Code** | `$function` | JavaScript UDFs. Requires SP30+. |
-| **Output** (1+, required) | `$merge`, `$emit` | Must be last. Required for deployed processors. |
+**Ordering:** Source → Stateless → Enrichment → Validation → Stateful/Window → Custom Code → Output
 
 ## Invalid Constructs
 
@@ -135,7 +147,7 @@ Fields: `connectionName` (required), `bucket` (required), `path` (required — k
 
 ## Window Patterns
 
-### Tumbling (Ref: `quickstarts/01_changestream_basic.json`)
+### Tumbling
 ```json
 {"$tumblingWindow": {
   "interval": {"size": 5, "unit": "minute"},
@@ -153,7 +165,7 @@ Fields: `connectionName` (required), `bucket` (required), `path` (required — k
 }}
 ```
 
-### Session (Ref: `example_processors/sessionWindow/`)
+### Session
 ```json
 {"$sessionWindow": {
   "gap": {"size": 5, "unit": "minute"}, "key": "$userId",
@@ -161,7 +173,7 @@ Fields: `connectionName` (required), `bucket` (required), `path` (required — k
 }}
 ```
 
-### Late data (Ref: `example_processors/lateData/`)
+### Late data
 ```json
 {"$tumblingWindow": {
   "interval": {"size": 1, "unit": "minute"},
@@ -173,9 +185,14 @@ Fields: `connectionName` (required), `bucket` (required), `path` (required — k
 
 `boundaryType`: `eventTime` (document timestamp) or `processTime` (wall clock, default).
 
+## Windowing Rules
+- Windows require `$group` inside the window pipeline
+- Idle Kafka partitions block windows — use `partitionIdleTimeout`
+- `allowedLateness` lets late docs update closed windows
+
 ## Enrichment Patterns
 
-### $https (Ref: `example_processors/http_operator/`)
+### $https
 ```json
 {"$https": {
   "connectionName": "my-api",
@@ -207,7 +224,7 @@ Fields: `connectionName` (required), `bucket` (required), `path` (required — k
 }}
 ```
 
-`execution`: `sync` (waits for Lambda result, adds latency) or `async` (fire-and-forget, lower latency). `$externalFunction` is a **mid-pipeline enrichment stage**, NOT a terminal sink — the pipeline still needs `$merge` or `$emit` after it. Do NOT use `$emit` to invoke Lambda.
+`execution`: `sync` (waits for result) or `async` (fire-and-forget). **Mid-pipeline enrichment stage**, NOT a terminal sink — pipeline still needs `$merge`/`$emit` after it.
 
 ### $validate (Schema Validation)
 ```json
@@ -223,7 +240,7 @@ Fields: `connectionName` (required), `bucket` (required), `path` (required — k
 }}
 ```
 
-`validationAction`: `"dlq"` (route invalid docs to DLQ — recommended), `"discard"` (silently drop invalid docs), `"error"` (crash processor on invalid doc — avoid in production). Place `$validate` early in the pipeline to catch bad data before expensive enrichment stages.
+`validationAction`: `"dlq"` (recommended), `"discard"`, `"error"` (crashes processor — avoid in production). Place early to catch bad data before expensive stages.
 
 ### $function (JavaScript UDF)
 ```json
@@ -236,9 +253,11 @@ Fields: `connectionName` (required), `bucket` (required), `path` (required — k
 }}
 ```
 
-Note: Requires **SP30+ tier** due to JavaScript runtime overhead. `body`: JavaScript function as string. `args`: array of field references passed as arguments. `lang`: always `"js"`.
+Requires **SP30+ tier**. `body`: JavaScript function as string. `args`: array of field references. `lang`: always `"js"`.
 
-## Array Normalization (Ref: `example_processors/array_explode/`)
+## Common Pipeline Patterns
+
+### Array Normalization
 ```json
 [
   {"$source": {"connectionName": "my-kafka", "topic": "orders"}},
@@ -248,9 +267,7 @@ Note: Requires **SP30+ tier** due to JavaScript runtime overhead. `body`: JavaSc
 ]
 ```
 
-Explodes nested arrays into individual documents, preserving parent context via `$mergeObjects`. Common for order line items, log entries, and nested event payloads.
-
-## Dynamic Kafka Topic Routing
+### Dynamic Kafka Topic Routing
 ```json
 {"$emit": {
   "connectionName": "my-kafka",
@@ -264,103 +281,7 @@ Explodes nested arrays into individual documents, preserving parent context via 
 }}
 ```
 
-Routes documents to different Kafka topics based on field values. Useful for multi-tenant routing, priority-based fan-out, and per-category topic splitting.
-
-## Real-Time Alerting with Severity Routing
-```json
-[
-  {"$source": {"connectionName": "my-kafka", "topic": "metrics"}},
-  {"$addFields": {
-    "alert_type": {"$switch": {
-      "branches": [
-        {"case": {"$gte": ["$value", 100]}, "then": "critical"},
-        {"case": {"$gte": ["$value", 75]}, "then": "warning"},
-        {"case": {"$gte": ["$value", 50]}, "then": "info"}
-      ],
-      "default": "none"
-    }}
-  }},
-  {"$match": {"alert_type": {"$ne": "none"}}},
-  {"$merge": {"into": {
-    "connectionName": "my-atlas", "db": "monitoring",
-    "coll": {"$cond": {"if": {"$eq": ["$alert_type", "critical"]}, "then": "critical_alerts", "else": "alerts"}}
-  }}}
-]
-```
-
-## Full API Enrichment Pipeline (Ref: `example_processors/http_operator/`)
-```json
-[
-  {"$source": {"connectionName": "my-kafka", "topic": "orders"}},
-  {"$match": {"status": "pending"}},
-  {"$https": {
-    "connectionName": "my-api",
-    "path": {"$concat": ["/customers/", "$customerId"]},
-    "method": "GET",
-    "as": "customerInfo",
-    "onError": "dlq"
-  }},
-  {"$addFields": {
-    "customerName": {"$ifNull": ["$customerInfo.name", "unknown"]},
-    "customerTier": {"$ifNull": ["$customerInfo.tier", "standard"]},
-    "enrichmentSucceeded": {"$ne": [{"$type": "$customerInfo"}, "missing"]}
-  }},
-  {"$unset": "customerInfo"},
-  {"$merge": {"into": {"connectionName": "my-atlas", "db": "orders", "coll": "enriched"}}}
-]
-```
-
-## Time-based Aggregation with Statistics
-```json
-{"$tumblingWindow": {
-  "interval": {"size": 5, "unit": "minute"},
-  "pipeline": [
-    {"$group": {
-      "_id": "$sensorId",
-      "avgValue": {"$avg": "$reading"},
-      "maxValue": {"$max": "$reading"},
-      "minValue": {"$min": "$reading"},
-      "stdDev": {"$stdDevPop": "$reading"},
-      "sampleCount": {"$sum": 1},
-      "windowStart": {"$first": "$_stream_meta.window.start"},
-      "windowEnd": {"$first": "$_stream_meta.window.end"}
-    }}
-  ]
-}}
-```
-
-## Pipeline Optimization: Selective $project
-
-After filtering, project only needed fields to reduce document size for downstream stages:
-```json
-[
-  {"$source": {"connectionName": "my-kafka", "topic": "events"}},
-  {"$match": {"status": "active", "region": "us-east"}},
-  {"$project": {"userId": 1, "amount": 1, "timestamp": 1, "region": 1}},
-  {"$lookup": {"connectionName": "my-atlas", "from": {"db": "mydb", "coll": "users"},
-    "localField": "userId", "foreignField": "_id", "as": "user", "parallelism": 2}},
-  {"$merge": {"into": {"connectionName": "my-atlas", "db": "mydb", "coll": "enriched"}}}
-]
-```
-
-## Window Metadata
-
-Inside window pipelines, `_stream_meta.window.start` and `_stream_meta.window.end` provide the window boundary timestamps:
-```json
-{"$tumblingWindow": {
-  "interval": {"size": 5, "unit": "minute"},
-  "pipeline": [
-    {"$group": {
-      "_id": "$deviceId",
-      "windowStart": {"$first": "$_stream_meta.window.start"},
-      "windowEnd": {"$first": "$_stream_meta.window.end"},
-      "avg": {"$avg": "$temp"}
-    }}
-  ]
-}}
-```
-
-## Complex Event Processing (Ref: `example_processors/` fraud detection patterns)
+### Complex Event Processing (Fraud Detection)
 ```json
 [
   {"$source": {"connectionName": "my-kafka", "topic": "transactions"}},
@@ -371,41 +292,20 @@ Inside window pipelines, `_stream_meta.window.start` and `_stream_meta.window.en
         "_id": "$userId",
         "txnCount": {"$sum": 1},
         "totalAmount": {"$sum": "$amount"},
-        "uniqueLocations": {"$addToSet": "$location"},
-        "transactions": {"$push": {"amount": "$amount", "merchant": "$merchant", "ts": "$timestamp"}}
+        "uniqueLocations": {"$addToSet": "$location"}
       }},
       {"$addFields": {
         "suspiciousLocations": {"$gt": [{"$size": "$uniqueLocations"}, 3]},
-        "highVelocity": {"$gt": ["$txnCount", 10]},
-        "largeTotal": {"$gt": ["$totalAmount", 5000]}
+        "highVelocity": {"$gt": ["$txnCount", 10]}
       }},
-      {"$match": {"$or": [
-        {"suspiciousLocations": true},
-        {"highVelocity": true},
-        {"largeTotal": true}
-      ]}}
+      {"$match": {"$or": [{"suspiciousLocations": true}, {"highVelocity": true}]}}
     ]
   }},
   {"$merge": {"into": {"connectionName": "my-atlas", "db": "fraud", "coll": "alerts"}}}
 ]
 ```
 
-## Data Quality & Normalization Pattern
-```json
-{"$addFields": {
-  "normalized_email": {"$toLower": {"$trim": {"input": "$email"}}},
-  "data_quality_score": {"$sum": [
-    {"$cond": [{"$ne": [{"$type": "$email"}, "missing"]}, 25, 0]},
-    {"$cond": [{"$ne": [{"$type": "$name"}, "missing"]}, 25, 0]},
-    {"$cond": [{"$ne": [{"$type": "$phone"}, "missing"]}, 25, 0]},
-    {"$cond": [{"$ne": [{"$type": "$address"}, "missing"]}, 25, 0]}
-  ]}
-}}
-```
-
-## Graceful Degradation with $ifNull
-
-When enrichment fields may be missing (e.g., `$https` or `$lookup` returns incomplete data):
+### Graceful Degradation with $ifNull
 ```json
 {"$addFields": {
   "userName": {"$ifNull": ["$userInfo.name", "unknown"]},
@@ -414,9 +314,29 @@ When enrichment fields may be missing (e.g., `$https` or `$lookup` returns incom
 }}
 ```
 
-## Sample Stream Formats
+## Window Metadata
 
-When `includeSampleData: true` on workspace creation (default), the `sample_stream_solar` connection is auto-created. Additional built-in sample formats available via Sample connections:
+Inside window pipelines, `_stream_meta.window.start` and `_stream_meta.window.end` provide boundary timestamps:
+```json
+{"$group": {
+  "_id": "$deviceId",
+  "windowStart": {"$first": "$_stream_meta.window.start"},
+  "windowEnd": {"$first": "$_stream_meta.window.end"},
+  "avg": {"$avg": "$temp"}
+}}
+```
+
+## Checkpoint Resume Constraints
+
+With `resumeFromCheckpoint: true` (default), you CANNOT change: window type, interval, remove windows, or modify `$source`. Set `false` to make these changes (restarts from beginning).
+
+## DLQ Configuration
+```json
+{"dlq": {"connectionName": "my-atlas", "db": "streams_dlq", "coll": "failed_documents"}}
+```
+DLQ documents include: original document, error message, stage info, timestamp.
+
+## Sample Stream Formats
 
 | Format | Data type |
 |--------|-----------|
@@ -426,21 +346,3 @@ When `includeSampleData: true` on workspace creation (default), the `sample_stre
 | `sampleiot` | Generic IoT sensor data |
 | `samplelog` | Application log events |
 | `samplecommerce` | E-commerce transaction data |
-
-## Windowing Rules
-- Windows require `$group` inside the window pipeline
-- Idle Kafka partitions block windows — use `partitionIdleTimeout`
-- `allowedLateness` lets late docs update closed windows
-
-## Checkpoint Resume Constraints
-With `resumeFromCheckpoint: true` (default), you CANNOT change: window type, interval, remove windows, or modify `$source`. Set `false` to make these changes (restarts from beginning).
-
-## DLQ Configuration
-```json
-{"dlq": {"connectionName": "my-atlas", "db": "streams_dlq", "coll": "failed_documents"}}
-```
-DLQ documents include: original document, error message, stage info, timestamp.
-
-## Tier Sizing & Parallelism
-
-See [sizing-and-parallelism.md](sizing-and-parallelism.md) for the full tier table, parallelism formula, complexity scoring, and cost optimization strategies.
