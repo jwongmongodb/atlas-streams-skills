@@ -225,7 +225,78 @@ For automated tier selection, use the **complexity scoring heuristic** in [`refe
 2. `atlas-streams-manage` → `modify-processor` (new pipeline)
 3. `atlas-streams-manage` → `start-processor`
 
-### Debug a failing processor
+- `action: "list-workspaces"` — list all workspaces in a project
+- `action: "inspect-workspace"` — details on a specific workspace
+- `action: "list-connections"` / `"inspect-connection"` — connections in a workspace
+- `action: "list-processors"` / `"inspect-processor"` — processors in a workspace
+- `action: "diagnose-processor"` — combined health report (state, stats, connection health, errors, actionable recommendations)
+- `action: "get-logs"` — operational logs (default) or audit logs. Use `logType: "operational"` for runtime errors (Kafka failures, schema issues, OOM). Use `logType: "audit"` for lifecycle events (start/stop). Optionally filter by `resourceName` (processor name).
+- `action: "get-networking"` — PrivateLink/VPC peering. Optionally provide `cloudProvider` and `region` for account details.
+
+**Pagination** (all list actions): `limit` (1-100, default 20), `pageNum` (default 1).
+**Response format**: `responseFormat` — `"concise"` (default for list actions: names/states only) or `"detailed"` (default for inspect/diagnose: full config).
+
+#### atlas-streams-manage field mapping
+
+Always fill: `projectId`, `workspaceName`. Then by action:
+
+- `"start-processor"` → `resourceName`. Optional: `tier`, `resumeFromCheckpoint`, `startAtOperationTime`
+- `"stop-processor"` → `resourceName`
+- `"modify-processor"` → `resourceName`. At least one of: `pipeline`, `dlq`, `newName`
+- `"update-workspace"` → `newRegion` or `newTier`
+- `"update-connection"` → `resourceName`, `connectionConfig`. Works for updating credentials, bootstrap servers, and other config. **Exception: networking config (e.g., PrivateLink) cannot be modified after creation** — to change networking, delete and recreate the connection.
+- `"accept-peering"` → `peeringId`, `requesterAccountId`, `requesterVpcId`
+- `"reject-peering"` → `peeringId`
+
+#### atlas-streams-teardown field mapping
+
+Always fill: `projectId`, `resource`. Then:
+
+- `resource: "workspace"` → `workspaceName`
+- `resource: "connection"` or `"processor"` → `workspaceName`, `resourceName`
+- `resource: "privatelink"` or `"peering"` → `resourceName` (the ID)
+
+**CRITICAL — Before deleting a workspace:**
+You MUST call `atlas-streams-discover` → `action: "inspect-workspace"` first to get the current count of connections and processors. Then present this information to the user BEFORE asking for confirmation:
+- Number of connections that will be deleted (list their names and types)
+- Number of processors that will be deleted (list their names and states)
+- Make it clear this action is permanent and cannot be undone
+
+Example workflow:
+1. User: "delete workspace X"
+2. Call `inspect-workspace` for workspace X
+3. Present: "Workspace X contains 2 connections (kafka, mongodb_atlas) and 3 processors (processor1: STOPPED, processor2: STARTED, processor3: CREATED). Deleting this workspace will permanently remove all of these resources. Proceed?"
+4. Wait for user confirmation
+5. Call `atlas-streams-teardown`
+
+### Step 3: Sequence multi-step workflows
+
+**Setup from scratch:**
+1. `atlas-streams-build` → `resource: "workspace"` (cloud, region, tier)
+2. `atlas-streams-build` → `resource: "connection"` (one call per connection)
+3. **BEFORE creating processor - REQUIRED VALIDATION**:
+   - Call `atlas-streams-discover` → `action: "list-connections"` to verify all required connections exist
+   - Call `atlas-streams-discover` → `action: "inspect-connection"` for EACH connection referenced in your pipeline
+   - Verify connection names match their actual targets (e.g., connection "atlascluster" should actually point to the intended cluster)
+   - Present connection summary to user showing any name/target mismatches
+   - Ask for confirmation before proceeding if mismatches exist
+4. `atlas-streams-build` → `resource: "processor"` (reference connections by name in pipeline)
+5. Set `autoStart: true` in step 4, or call `atlas-streams-manage` → `action: "start-processor"`
+
+**Incremental pipeline development (recommended):**
+See [references/development-workflow.md](references/development-workflow.md) for the full 5-phase lifecycle.
+1. Start with basic `$source` → `$merge` pipeline (validate connectivity)
+2. Add `$match` stages (validate filtering)
+3. Add `$addFields` / `$project` transforms (validate reshaping)
+4. Add windowing or enrichment (validate aggregation logic)
+5. Add error handling / DLQ configuration
+
+**Modify a processor pipeline:**
+1. `atlas-streams-manage` → `action: "stop-processor"` — **processor MUST be stopped first**
+2. `atlas-streams-manage` → `action: "modify-processor"` — provide new pipeline
+3. `atlas-streams-manage` → `action: "start-processor"` — restart
+
+**Debug a failing processor:**
 See [references/output-diagnostics.md](references/output-diagnostics.md) for the full decision framework.
 1. `atlas-streams-discover` → `diagnose-processor` — one-shot health report. Always call this first.
 2. `atlas-streams-discover` → `get-logs` (`logType: "operational"`) — runtime errors, Kafka failures, schema issues, OOM messages. Filter by `resourceName` for a specific processor. Always call this second.
@@ -249,6 +320,11 @@ See [references/output-diagnostics.md](references/output-diagnostics.md) for the
 2. **Propose chained processors**: Processor A reads source → enriches → writes to intermediate via `$merge` (Atlas) or `$emit` (Kafka). Processor B reads from that intermediate (change stream or Kafka topic) → emits to second destination. Kafka-as-intermediate is lower latency; Atlas-as-intermediate is simpler to inspect.
 3. **Show both processor pipelines** including any `$lookup` enrichment stages with `parallelism` settings.
 
+**Tear down:**
+**BEFORE deleting a workspace**, inspect it first with `atlas-streams-discover` → `action: "inspect-workspace"` to determine how many connections and processors will be deleted. Present this information to the user and wait for confirmation before proceeding.
+
+You can delete workspace directly (removes all contained resources), or delete individually: delete processors (auto-stops if running) → delete connections (fails if referenced by running processors) → delete workspace.
+
 Note: `$externalFunction` (Lambda) is a mid-pipeline stage, NOT a terminal sink. A pipeline can use `$externalFunction` AND still have a terminal `$merge`/`$emit` — this is a valid single-sink pattern, but explain WHY it works (Lambda is invoked mid-pipeline, not as a sink).
 
 ### Verify after deploy
@@ -260,19 +336,86 @@ Note: `$externalFunction` (Lambda) is a mid-pipeline stage, NOT a terminal sink.
 
 ## Pre-Deploy Checklist
 
-Before creating any processor:
-- [ ] **`search-knowledge` was called** to validate sink/source field names (REQUIRED, not optional)
-- [ ] Pipeline starts with `$source` and ends with `$merge` or `$emit`
-- [ ] No `$$NOW`, `$$ROOT`, or `$$CURRENT` (invalid in streaming)
-- [ ] Kafka sources include `topic` field
-- [ ] HTTPS connections used only in `$https` stages, never as `$source`
-- [ ] Lambda invoked via `$externalFunction` (mid-pipeline), not `$emit`; `execution` explicitly set to `"sync"` or `"async"`
-- [ ] Schema validation uses `$validate` with `validationAction: "dlq"` (not `"error"`)
-- [ ] DLQ configured; `$https`/`$externalFunction` use `onError: "dlq"`
-- [ ] Windowed Kafka/Kinesis sources include `partitionIdleTimeout`/`shardIdleTimeout`
-- [ ] All `connectionName` references match actual connections in workspace
-- [ ] API auth stored in connection settings, not hardcoded in pipeline
-- [ ] Tier appropriate for complexity (`$function` requires SP30+; see `references/sizing-and-parallelism.md`)
+**Connection creation — elicitation:** When creating a connection, the build tool auto-collects missing sensitive fields (passwords, bootstrap servers, usernames) via an interactive form using the MCP elicitation protocol. Do NOT ask the user for these fields yourself — let the tool elicit them.
+
+**Connection creation — auto-normalization:**
+- `bootstrapServers` array → auto-converted to comma-separated string
+- `schemaRegistryUrls` string → auto-wrapped in array
+- `dbRoleToExecute` → auto-defaults to `{role: "readWriteAnyDatabase", type: "BUILT_IN"}` for Cluster connections
+
+**Workspace creation — sample data:** `includeSampleData` defaults to `true`, which auto-creates the `sample_stream_solar` connection via a special API endpoint.
+
+**State pre-checks (manage tool):**
+- `start-processor` → errors if processor is already STARTED
+- `stop-processor` → no-ops if already STOPPED or CREATED (not an error)
+- `modify-processor` → errors if processor is STARTED (must stop first)
+
+**Teardown safety checks:**
+- **Processor deletion** → auto-stops the processor before deleting (no need to stop manually first)
+- **Connection deletion** → scans all processor pipelines for references; **blocks deletion** if any running processor uses the connection. Stop/delete referencing processors first.
+- **Workspace deletion** → YOU must inspect the workspace first with `atlas-streams-discover` to count connections and processors, then present this to the user before calling the teardown tool. The teardown tool will then delete the workspace and all contained resources permanently.
+
+## Pre-Deploy Quality Checklist
+
+Before creating a processor, verify:
+
+### Connection Validation (MANDATORY - Always do this first)
+- [ ] **CRITICAL**: Call `atlas-streams-discover` → `action: "list-connections"` to list all connections in workspace
+- [ ] **CRITICAL**: Call `atlas-streams-discover` → `action: "inspect-connection"` for EACH connection referenced in pipeline
+- [ ] **CRITICAL**: Verify connection names clearly indicate their actual targets (avoid generic names like "atlascluster" pointing to "ClusterRestoreTest")
+- [ ] **CRITICAL**: Present connection summary to user: "Connection 'X' → Actual target 'Y'" for each connection
+- [ ] **CRITICAL**: Warn user if connection names don't match their targets and ask for confirmation
+- [ ] All connections are in READY state
+- [ ] Connection types match usage (Cluster for $source/$merge, Kafka for topics, etc.)
+
+### Pipeline Validation
+- [ ] `search-knowledge` was called to validate sink/source field names
+- [ ] Pipeline starts with `$source` and ends with `$merge`, `$emit`, `$https`, or `$externalFunction` (async)
+- [ ] No `$$NOW`, `$$ROOT`, or `$$CURRENT` in the pipeline
+- [ ] Kafka `$source` includes a `topic` field
+- [ ] Kafka `$source` with windowed pipeline includes `partitionIdleTimeout` (prevents windows from stalling on idle partitions)
+- [ ] HTTPS connections are only used in `$https` enrichment or sink stages, not in `$source`
+- [ ] DLQ is configured (recommended for production)
+- [ ] `$https` stages use `onError: "dlq"` (not `"fail"`)
+- [ ] `$externalFunction` stages use `onError: "dlq"` and `execution` is explicitly set
+- [ ] API auth is stored in connection settings, not hardcoded in the pipeline
+
+## Post-Deploy Verification Workflow
+
+After creating and starting a processor:
+1. `atlas-streams-discover` → `action: "inspect-processor"` — confirm state is STARTED
+2. `atlas-streams-discover` → `action: "diagnose-processor"` — check for errors in the health report
+3. Use MongoDB `count` tool on the DLQ collection — verify no errors accumulating
+4. Use MongoDB `find` tool on the output collection — verify documents are arriving
+5. If output is low/zero, classify processor type before assuming a problem (see Debug section)
+
+## Tier Sizing & Performance
+
+See [references/sizing-and-parallelism.md](references/sizing-and-parallelism.md) for the complete guide including complexity scoring, worked examples, and cost optimization.
+
+### Tier Reference
+
+| Tier | vCPU | RAM | Bandwidth | Max Parallelism | Kafka Partitions | Use case |
+|------|------|-----|-----------|-----------------|------------------|----------|
+| SP2  | 0.25 | 512MB | 50 Mbps | 1 | 32 | Minimal filtering, testing |
+| SP5  | 0.5 | 1GB | 125 Mbps | 2 | 64 | Simple filtering and routing |
+| SP10 | 1 | 2GB | 200 Mbps | 8 | Unlimited | Moderate workloads, joins, grouping |
+| SP30 | 2 | 8GB | 750 Mbps | 16 | Unlimited | Windows, JavaScript UDFs, production |
+| SP50 | 8 | 32GB | 2500 Mbps | 64 | Unlimited | High throughput, large window state |
+
+### Sizing Rules
+- Stream Processing reserves **20% memory for overhead** — user processes are limited to 80%
+- Monitor `memoryUsageBytes` via processor stats to determine proper tier
+- If memory usage exceeds 80% of tier capacity, processor fails with OOM
+- Use `parallelism` setting on `$merge`, `$lookup`, `$https` for concurrent I/O operations
+
+**Parallelism formula:** `minimum tier = sum of (parallelism - 1) for all stages where parallelism > 1`. Example: a pipeline with `$lookup` at parallelism 3 and `$merge` at parallelism 4 needs `(3-1) + (4-1) = 5` excess parallelism → requires SP10 (max 8).
+
+### Performance Best Practices
+- Place `$match` stages as early as possible to reduce downstream volume
+- Place `$https` enrichment calls downstream of window stages to batch and reduce API call frequency
+- Use `partitionIdleTimeout` in Kafka `$source` to unblock windows when partitions go idle
+- Use descriptive processor names indicating their function (e.g., `celsius-converter`, `fraud-detector`)
 
 ## Troubleshooting
 
@@ -313,13 +456,17 @@ Before creating any processor:
 
 ## Safety Rules
 
-1. **Confirm before starting** — Always warn about billing implications before `start-processor`
-2. **Stop before modify** — Processors must be stopped before modifying pipeline or DLQ
-3. **Check references before delete** — Use `list-processors` or `inspect-connection` to verify no running processors reference a connection before deleting it
-4. **DLQ is mandatory for production** — Never deploy without a dead letter queue
-5. **Validate pipeline first** — Call `search-knowledge` and fetch examples from ASP_example repo before creating processors
-6. **Don't hardcode secrets** — Store auth in connection config, never in pipeline expressions
-7. **Networking is immutable** — Cannot modify after connection creation; must delete and recreate
+- `atlas-streams-teardown` and `atlas-streams-manage` require user confirmation — do not bypass
+- **BEFORE calling `atlas-streams-teardown` for a workspace**, you MUST first inspect the workspace with `atlas-streams-discover` to count connections and processors, then present this information to the user before requesting confirmation
+- **BEFORE creating any processor**, you MUST validate all connections per the "Pre-Deployment Validation" section in [references/development-workflow.md](references/development-workflow.md)
+- Deleting a workspace removes ALL connections and processors permanently
+- Processors must be STOPPED before modifying their pipeline
+- After stopping, state is preserved 45 days — then checkpoints are discarded
+- `resumeFromCheckpoint: false` drops all window state — warn user first
+- Moving processors between workspaces is not supported (must recreate)
+- Dry-run / simulation is not supported — explain what you would do and ask for confirmation
+- Always warn users about billing before starting processors
+- Store API authentication credentials in connection settings, never hardcode in processor pipelines
 
 ## Reference Files
 
