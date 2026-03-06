@@ -102,14 +102,20 @@ If the MongoDB MCP Server is not connected or the streams tools are missing:
 
 ## CRITICAL: Validate Before Creating Processors
 
-**You MUST call `search-knowledge` before composing any processor pipeline.** This is not optional. Query with the sink/source type, e.g. "Atlas Stream Processing $emit S3 fields" or "Atlas Stream Processing Kafka $source configuration". This validates field names and catches errors like `prefix` vs `path` for S3 `$emit`.
+**You MUST call `search-knowledge` before composing any processor pipeline.** This is not optional.
+- **Field validation:** Query with the sink/source type, e.g. "Atlas Stream Processing $emit S3 fields" or "Atlas Stream Processing Kafka $source configuration". This catches errors like `prefix` vs `path` for S3 `$emit`.
+- **Pattern examples:** Query with `dataSources: [{"name": "devcenter"}]` for working pipelines, e.g. "Atlas Stream Processing tumbling window example".
 
-Also consult the official ASP examples repo: **https://github.com/mongodb/ASP_example** (33+ processors, 6 quickstarts). Key references:
+Also fetch examples from the official ASP examples repo when building non-trivial processors: **https://github.com/mongodb/ASP_example** (quickstarts, example processors, Terraform examples). Start with `example_processors/README.md` for the full pattern catalog.
+
+Key quickstarts:
 | Quickstart | Pattern |
 |-----------|---------|
 | `00_hello_world.json` | Inline `$source.documents` with `$match` (zero infra, ephemeral) |
 | `01_changestream_basic.json` | Change stream → tumbling window → `$merge` to Atlas |
 | `03_kafka_to_mongo.json` | Kafka source → tumbling window rollup → `$merge` to Atlas |
+| `04_mongo_to_mongo.json` | Chained processors: rollup → archive to separate collection |
+| `05_kafka_tail.json` | Real-time Kafka topic monitoring (sinkless, like `tail -f`) |
 
 ## Pipeline Rules & Warnings
 
@@ -210,7 +216,7 @@ For automated tier selection, use the **complexity scoring heuristic** in [`refe
 1. `atlas-streams-discover` → `list-workspaces` (check existing)
 2. `atlas-streams-build` → `resource: "workspace"` (region near data, SP10 for dev)
 3. `atlas-streams-build` → `resource: "connection"` (for each source/sink/enrichment)
-4. Consult `search-knowledge` and https://github.com/mongodb/ASP_example before building pipeline
+4. Call `search-knowledge` to validate field names. Fetch relevant examples from https://github.com/mongodb/ASP_example
 5. `atlas-streams-build` → `resource: "processor"` (with DLQ configured)
 6. `atlas-streams-manage` → `start-processor` (warn about billing)
 
@@ -311,7 +317,7 @@ Before creating any processor:
 2. **Stop before modify** — Processors must be stopped before modifying pipeline or DLQ
 3. **Check references before delete** — Use `list-processors` or `inspect-connection` to verify no running processors reference a connection before deleting it
 4. **DLQ is mandatory for production** — Never deploy without a dead letter queue
-5. **Validate pipeline first** — Consult `search-knowledge` and ASP_example repo before creating processors
+5. **Validate pipeline first** — Call `search-knowledge` and fetch examples from ASP_example repo before creating processors
 6. **Don't hardcode secrets** — Store auth in connection config, never in pipeline expressions
 7. **Networking is immutable** — Cannot modify after connection creation; must delete and recreate
 
