@@ -1,0 +1,53 @@
+{
+  "eval_id": 19,
+  "eval_name": "mongosh-inspection",
+  "prompt": "I'm connected to my Atlas Stream Processing workspace via mongosh. My MCP tools aren't available right now. I need to see what connections are configured, which processors are currently running, and get a health snapshot of one of them.",
+  "assertions": [
+    {
+      "name": "uses_list_connections",
+      "description": "Uses sp.listConnections() to list configured connections",
+      "critical": true,
+      "reason": "sp.listConnections() is the correct command — standard MongoDB commands like db.listCollections() don't work in a streams workspace"
+    },
+    {
+      "name": "uses_list_processors",
+      "description": "Uses sp.listStreamProcessors() to list deployed processors",
+      "critical": true
+    },
+    {
+      "name": "mentions_sp_stats",
+      "description": "Mentions sp.stats() for processor health and statistics",
+      "critical": true
+    },
+    {
+      "name": "no_wrong_commands",
+      "description": "Does NOT suggest db.listCollections(), show collections, or other standard MongoDB commands",
+      "critical": true,
+      "reason": "Stream Processing workspaces are not regular databases — standard MongoDB shell inspection commands don't apply"
+    }
+  ],
+  "correct_commands": {
+    "list_connections": "sp.listConnections()",
+    "list_processors": "sp.listStreamProcessors()",
+    "processor_health": "sp.stats()",
+    "note": "These are Atlas Stream Processing-specific commands in the sp namespace"
+  },
+  "common_mistakes": [
+    {
+      "mistake": "Suggesting db.listCollections() or show collections",
+      "error": "These are database commands and don't return stream processing resources",
+      "fix": "Use sp.listConnections() and sp.listStreamProcessors()"
+    },
+    {
+      "mistake": "Guessing sp.getConnections() or sp.list()",
+      "error": "These methods don't exist — incorrect method names",
+      "fix": "The exact commands are sp.listConnections(), sp.listStreamProcessors(), sp.stats()"
+    },
+    {
+      "mistake": "Suggesting db.stats() instead of sp.stats()",
+      "error": "db.stats() returns database storage stats, not processor health",
+      "fix": "Use sp.stats() for stream processor health and metrics"
+    }
+  ],
+  "skill_reference": "references/mongosh-sp-process.md: 'sp.listConnections(), sp.listStreamProcessors(), sp.stats()'"
+}

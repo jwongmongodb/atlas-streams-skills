@@ -1,0 +1,70 @@
+{
+  "eval_id": 21,
+  "eval_name": "no-tools-config-fix",
+  "prompt": "I just set up the MongoDB MCP server but I don't see any atlas-streams tools in my Claude session. I need to create a connection to my Kafka cluster and deploy a processor. What should I do?",
+  "assertions": [
+    {
+      "name": "diagnoses_preview_features",
+      "description": "Identifies previewFeatures: [\"streams\"] as the likely missing MCP server config",
+      "critical": true,
+      "reason": "Atlas Stream Processing tools are a preview feature and require explicit opt-in in the MCP server config"
+    },
+    {
+      "name": "shows_config_fix",
+      "description": "Shows the specific JSON config change to add previewFeatures: [\"streams\"]",
+      "critical": true
+    },
+    {
+      "name": "offers_cli_interim",
+      "description": "Offers Atlas CLI as an interim option while the user fixes the MCP config"
+    },
+    {
+      "name": "no_false_tool_call",
+      "description": "Does NOT attempt to call atlas-streams-* tools as if they exist",
+      "critical": true
+    }
+  ],
+  "config_fix": {
+    "description": "Add previewFeatures to the MCP server configuration",
+    "before": {
+      "mcpServers": {
+        "mongodb-local": {
+          "command": "...",
+          "apiClientId": "your-client-id",
+          "apiClientSecret": "your-secret"
+        }
+      }
+    },
+    "after": {
+      "mcpServers": {
+        "mongodb-local": {
+          "command": "...",
+          "apiClientId": "your-client-id",
+          "apiClientSecret": "your-secret",
+          "previewFeatures": ["streams"]
+        }
+      }
+    },
+    "after_restart": "Restart Claude (start a new session) to load the updated config"
+  },
+  "cli_interim": {
+    "description": "While fixing the MCP config, use Atlas CLI for immediate needs",
+    "create_workspace": "atlas streams instances create <name> --provider AWS --region VIRGINIA_USA --projectId <id>",
+    "create_connection": "atlas streams connections create --instance <workspace> --file connection.json --projectId <id>",
+    "create_processor": "atlas streams processors create --instance <workspace> --file processor.json --projectId <id>",
+    "reference": "See references/atlas-cli-streams.md for full CLI command reference"
+  },
+  "fallback_priority": [
+    "1. Fix previewFeatures config and restart Claude (preferred — enables all MCP tool features)",
+    "2. Use Atlas CLI for CRUD operations (interim — lacks diagnose, safety checks, elicitation)",
+    "3. Use sp.process() in mongosh for pipeline testing (always available)"
+  ],
+  "common_mistakes": [
+    {
+      "mistake": "Generic 'check your config' advice without identifying previewFeatures",
+      "error": "User cannot fix the issue without knowing the specific setting",
+      "fix": "Specifically identify previewFeatures: ['streams'] as the missing config key"
+    }
+  ],
+  "skill_reference": "SKILL.md lines 21-27: 'If MCP tools are unavailable: 1. Verify previewFeatures: [\"streams\"] enabled 2. Use atlas streams CLI 3. Use sp.process() for prototyping'"
+}

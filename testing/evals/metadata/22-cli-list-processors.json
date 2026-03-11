@@ -1,0 +1,57 @@
+{
+  "eval_id": 22,
+  "eval_name": "cli-list-processors",
+  "prompt": "My MCP server isn't connecting. I need to check what processors are running in workspace prod-streams (project 65094f059e0776665611598b) and see the pipeline definition for a specific one.",
+  "assertions": [
+    {
+      "name": "correct_list_command",
+      "description": "Uses 'atlas streams processors list' with correct subcommand structure",
+      "critical": true,
+      "reason": "Common errors: 'atlas stream' (singular), 'atlas streams list' (missing 'processors'), wrong verb"
+    },
+    {
+      "name": "uses_instance_flag",
+      "description": "Uses '--instance prod-streams' flag (NOT '--workspace' or '--name')",
+      "critical": true,
+      "reason": "The flag name is --instance, not --workspace. Using the wrong flag causes CLI errors."
+    },
+    {
+      "name": "includes_project_id",
+      "description": "Includes '--projectId 65094f059e0776665611598b' in the commands"
+    },
+    {
+      "name": "shows_describe_command",
+      "description": "Shows 'atlas streams processors describe <name> --instance prod-streams' for pipeline details",
+      "critical": true
+    }
+  ],
+  "correct_commands": {
+    "list_processors": "atlas streams processors list --instance prod-streams --projectId 65094f059e0776665611598b",
+    "get_pipeline_details": "atlas streams processors describe <processor-name> --instance prod-streams --projectId 65094f059e0776665611598b",
+    "note": "The workspace is passed via --instance flag, not --workspace"
+  },
+  "common_mistakes": [
+    {
+      "mistake": "Using '--workspace' instead of '--instance'",
+      "error": "CLI returns error: unknown flag '--workspace'",
+      "fix": "Atlas Stream Processing workspaces are called 'instances' in the CLI. Use --instance."
+    },
+    {
+      "mistake": "Using 'atlas stream' (singular) instead of 'atlas streams'",
+      "error": "Command not found",
+      "fix": "The command group is 'atlas streams' (plural)"
+    },
+    {
+      "mistake": "Using 'get' or 'show' instead of 'describe' for pipeline details",
+      "error": "Subcommand not found",
+      "fix": "Use 'atlas streams processors describe <name>' for full processor details including pipeline"
+    }
+  ],
+  "cli_to_mcp_mapping": {
+    "atlas-streams-discover list-processors": "atlas streams processors list --instance <ws>",
+    "atlas-streams-discover inspect-processor": "atlas streams processors describe <name> --instance <ws>",
+    "atlas-streams-manage start-processor": "atlas streams processors start <name> --instance <ws>",
+    "atlas-streams-manage stop-processor": "atlas streams processors stop <name> --instance <ws>"
+  },
+  "skill_reference": "references/atlas-cli-streams.md: full CLI command reference with --instance flag syntax"
+}

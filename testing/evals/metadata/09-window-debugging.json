@@ -1,0 +1,54 @@
+{
+  "eval_id": 9,
+  "eval_name": "window-debugging",
+  "prompt": "I'm running sp.process() in mongosh with a tumbling window pipeline over a Kafka topic but the window never closes and I see no output. Data is definitely flowing on the topic.",
+  "assertions": [
+    {
+      "name": "identifies_idle_partitions",
+      "description": "Identifies idle Kafka partitions as the likely root cause — windows require ALL partitions to advance",
+      "critical": true,
+      "reason": "This is the most common cause of windowed processors producing no output when data is present"
+    },
+    {
+      "name": "recommends_partitionIdleTimeout",
+      "description": "Recommends adding partitionIdleTimeout to the $source stage",
+      "critical": true
+    },
+    {
+      "name": "shows_corrected_pipeline",
+      "description": "Shows corrected sp.process() call with partitionIdleTimeout in $source",
+      "critical": true
+    },
+    {
+      "name": "notes_sp_process_single_threaded",
+      "description": "Mentions that sp.process() is single-threaded"
+    }
+  ],
+  "root_cause": "Idle Kafka partitions blocking window closure",
+  "explanation": "Tumbling windows require all partitions to advance past the window boundary before emitting. If any partition has no new data, the global watermark stalls and the window never closes.",
+  "solution": {
+    "field": "partitionIdleTimeout",
+    "location": "$source stage",
+    "syntax": {
+      "$source": {
+        "connectionName": "my-kafka",
+        "topic": "clickstream",
+        "partitionIdleTimeout": {"size": 30, "unit": "second"}
+      }
+    },
+    "explanation": "After 30s of silence on a partition, treat it as idle and allow watermark to advance"
+  },
+  "common_mistakes": [
+    {
+      "mistake": "Suggesting the topic has no data",
+      "error": "User confirmed data is flowing — this is the wrong diagnosis",
+      "fix": "The issue is partition-level idleness, not topic-level emptiness"
+    },
+    {
+      "mistake": "Suggesting connection issues",
+      "error": "User confirmed data flows without the window — connections are fine",
+      "fix": "Focus on the windowing mechanism, not connectivity"
+    }
+  ],
+  "skill_reference": "references/mongosh-sp-process.md and SKILL.md troubleshooting section"
+}

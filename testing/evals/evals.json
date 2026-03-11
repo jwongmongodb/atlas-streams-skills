@@ -1,0 +1,603 @@
+{
+  "skill_name": "streams-mcp-tools",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I have a workspace called analytics-ws in project 65094f059e0776665611598b with connections my-kafka (Kafka) and my-atlas (Cluster). Create a processor that reads from Kafka topic 'page-views', adds a 'processed_at' field with the current timestamp to each document, and writes to Atlas collection 'enriched_views' in database 'analytics'. Don't call the build tool, just show me the pipeline JSON.",
+      "expected_output": "LLM must NOT use $$NOW (invalid in streaming). Should use _stream_meta.arrivalTime or sourceTimestamp. Should explain WHY $$NOW is invalid.",
+      "assertions": [
+        {
+          "name": "no_dollar_now",
+          "description": "Pipeline does NOT contain $$NOW anywhere",
+          "type": "absence"
+        },
+        {
+          "name": "uses_stream_meta_or_doc_time",
+          "description": "Uses _stream_meta.arrivalTime, _stream_meta.sourceTimestamp, or $toDate with _stream_meta instead of $$NOW",
+          "type": "contains"
+        },
+        {
+          "name": "valid_pipeline_structure",
+          "description": "Pipeline has $source (Kafka with topic), transformation stage, and $merge to Atlas",
+          "type": "structural"
+        },
+        {
+          "name": "explains_why_no_dollar_now",
+          "description": "LLM explicitly explains WHY $$NOW is invalid in stream processing",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Delete workspace prod-streams in project 65094f059e0776665611598b. I don't need it anymore.",
+      "expected_output": "LLM MUST inspect the workspace first, present resource counts, and ask for confirmation BEFORE calling teardown.",
+      "assertions": [
+        {
+          "name": "inspects_before_delete",
+          "description": "LLM calls atlas-streams-discover to inspect the workspace BEFORE calling teardown",
+          "type": "process"
+        },
+        {
+          "name": "presents_resource_counts",
+          "description": "LLM tells the user how many connections and/or processors exist before proceeding",
+          "type": "contains"
+        },
+        {
+          "name": "asks_for_confirmation",
+          "description": "LLM explicitly asks for user confirmation before deleting, mentioning deletion is permanent and cascading",
+          "type": "contains"
+        },
+        {
+          "name": "does_not_immediately_teardown",
+          "description": "LLM does NOT call atlas-streams-teardown as the very first action",
+          "type": "absence"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "I have a workspace called monitor-ws in project 65094f059e0776665611598b with my-kafka (Kafka). I want to create a processor that just tails Kafka topic 'events' and logs what's coming through in real-time \u2014 no need to write anywhere, just monitoring. Show me the pipeline.",
+      "expected_output": "Should explain sink requirement, suggest sp.process() as the sinkless alternative.",
+      "assertions": [
+        {
+          "name": "explains_sink_requirement",
+          "description": "LLM explains that deployed processors require a terminal sink stage ($merge or $emit)",
+          "type": "contains"
+        },
+        {
+          "name": "suggests_sp_process",
+          "description": "LLM suggests sp.process() in mongosh as the sinkless monitoring alternative",
+          "type": "contains"
+        },
+        {
+          "name": "no_sinkless_deployed_pipeline",
+          "description": "LLM does NOT propose a deployed processor pipeline without a terminal sink",
+          "type": "absence"
+        },
+        {
+          "name": "mentions_no_billing",
+          "description": "LLM mentions that sp.process() runs ephemerally without billing",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "I have a workspace called etl-ws in project 65094f059e0776665611598b with connections my-kafka (Kafka) and output-kafka (Kafka). Create a processor that reads from topic 'raw-events' on my-kafka, filters for events where status='active', and merges the results to topic 'filtered-events' on output-kafka. Don't call the build tool, just show me the pipeline JSON.",
+      "expected_output": "Must use $emit (not $merge) for Kafka. Should correct the user's terminology.",
+      "assertions": [
+        {
+          "name": "uses_emit_not_merge_for_kafka",
+          "description": "Pipeline uses $emit (not $merge) to write to the Kafka topic",
+          "type": "structural"
+        },
+        {
+          "name": "corrects_terminology",
+          "description": "LLM explains that $merge is for Atlas clusters, while $emit is used for Kafka topics",
+          "type": "contains"
+        },
+        {
+          "name": "emit_has_topic",
+          "description": "$emit includes connectionName and topic fields",
+          "type": "structural"
+        },
+        {
+          "name": "valid_source_with_topic",
+          "description": "$source includes connectionName 'my-kafka' and topic 'raw-events'",
+          "type": "structural"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "I need a processor in workspace dev-streams (project 65094f059e0776665611598b) that reads from my-kafka topic 'orders', does a $lookup to enrich with customer data from my-atlas (db: shop, coll: customers), then writes enriched orders to my-atlas (db: shop, coll: enriched_orders). The processor needs to handle high throughput \u2014 about 10,000 events/second with the $lookup. What tier do I need and show me the pipeline.",
+      "expected_output": "Should recommend SP30+ with parallelism on $lookup and $merge.",
+      "assertions": [
+        {
+          "name": "recommends_sp30_or_higher",
+          "description": "LLM recommends SP30 or SP50 tier, not SP10 or lower",
+          "type": "contains"
+        },
+        {
+          "name": "lookup_has_parallelism",
+          "description": "$lookup stage includes parallelism setting > 1",
+          "type": "structural"
+        },
+        {
+          "name": "merge_has_parallelism",
+          "description": "$merge stage includes parallelism setting for concurrent writes",
+          "type": "structural"
+        },
+        {
+          "name": "explains_sizing_rationale",
+          "description": "LLM explains why the recommended tier is needed",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "Delete connection prod-kafka from workspace prod-streams in project 65094f059e0776665611598b. The processor etl-pipeline uses this connection and is currently running.",
+      "expected_output": "Must warn that deletion will fail because a running processor references this connection.",
+      "assertions": [
+        {
+          "name": "warns_about_running_processor",
+          "description": "LLM warns that the connection cannot be deleted while a running processor references it",
+          "type": "contains"
+        },
+        {
+          "name": "suggests_stop_or_delete_processor_first",
+          "description": "LLM suggests stopping or deleting the etl-pipeline processor before deleting the connection",
+          "type": "contains"
+        },
+        {
+          "name": "does_not_blindly_delete",
+          "description": "LLM does NOT immediately call atlas-streams-teardown without addressing the dependency",
+          "type": "absence"
+        },
+        {
+          "name": "explains_dependency_mechanism",
+          "description": "LLM explains WHY deletion fails \u2014 Atlas blocks this to prevent pipeline breakage",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "prompt": "I have a pipeline with $lookup (parallelism: 4), $https (parallelism: 3), and $merge (parallelism: 4). What's the minimum tier I need for this processor?",
+      "expected_output": "Should calculate (4-1)+(3-1)+(4-1) = 8, recommend SP10.",
+      "assertions": [
+        {
+          "name": "shows_parallelism_formula",
+          "description": "LLM shows the parallelism formula: sum of (parallelism - 1) for each stage",
+          "type": "contains"
+        },
+        {
+          "name": "calculates_eight",
+          "description": "LLM arrives at 8 as the total excess parallelism needed",
+          "type": "contains"
+        },
+        {
+          "name": "recommends_sp10",
+          "description": "LLM recommends SP10 as the minimum tier (max parallelism 8)",
+          "type": "contains"
+        },
+        {
+          "name": "references_tier_table",
+          "description": "LLM references the tier's max parallelism limit to justify the recommendation",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "prompt": "Create a Kafka connection called prod-kafka in workspace dev-streams (project 65094f059e0776665611598b) for my Confluent Cloud cluster.",
+      "expected_output": "Should NOT ask for passwords/bootstrap servers. Should call build tool and let elicitation handle sensitive fields.",
+      "assertions": [
+        {
+          "name": "does_not_ask_for_password",
+          "description": "LLM does NOT ask the user for their Kafka password or authentication credentials",
+          "type": "absence"
+        },
+        {
+          "name": "does_not_ask_for_bootstrap_servers",
+          "description": "LLM does NOT ask the user for bootstrap server addresses before calling the tool",
+          "type": "absence"
+        },
+        {
+          "name": "calls_build_tool",
+          "description": "LLM calls or proposes calling atlas-streams-build with resource connection, connectionType Kafka",
+          "type": "process"
+        },
+        {
+          "name": "trusts_elicitation",
+          "description": "LLM mentions or implies that the tool will collect missing fields, or proceeds without gathering sensitive config first",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "prompt": "I'm running sp.process() in mongosh with a tumbling window pipeline over a Kafka topic but the window never closes and I see no output. Here's what I'm running:\n\nsp.process([\n  { $source: { connectionName: \"my-kafka\", topic: \"clickstream\" } },\n  { $tumblingWindow: {\n      interval: { size: 30, unit: \"second\" },\n      pipeline: [\n        { $group: { _id: \"$page\", count: { $sum: 1 } } }\n      ]\n  }}\n])\n\nData is definitely flowing on the topic \u2014 I can see it when I run sp.process() without the window. What's going on?",
+      "expected_output": "Should identify idle partitions blocking window closure, recommend partitionIdleTimeout.",
+      "assertions": [
+        {
+          "name": "identifies_idle_partitions",
+          "description": "LLM identifies idle Kafka partitions as the likely cause \u2014 windows require all partitions to advance",
+          "type": "contains"
+        },
+        {
+          "name": "recommends_partition_idle_timeout",
+          "description": "LLM recommends adding partitionIdleTimeout to the $source stage",
+          "type": "contains"
+        },
+        {
+          "name": "shows_corrected_pipeline",
+          "description": "LLM shows the corrected sp.process() call with partitionIdleTimeout in $source",
+          "type": "structural"
+        },
+        {
+          "name": "notes_sp_process_single_threaded",
+          "description": "LLM mentions that sp.process() is single-threaded",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "prompt": "I have a workspace with my-kafka (Kafka) and my-s3 (S3) connections in project 65094f059e0776665611598b. Create a processor that reads from Kafka topic 'logs', and writes all logs to S3 bucket 'data-lake' under the prefix 'raw/logs/' as JSON files. Don't call the build tool, just show me the pipeline JSON.",
+      "expected_output": "Must use $emit for S3 with 'path' (not 'prefix'), include outputFormat config, mention IAM role ARN prerequisite.",
+      "assertions": [
+        {
+          "name": "uses_path_not_prefix",
+          "description": "S3 $emit uses 'path' field, NOT 'prefix'",
+          "type": "structural"
+        },
+        {
+          "name": "includes_output_format",
+          "description": "$emit includes config.outputFormat (e.g., {name: 'json'})",
+          "type": "structural"
+        },
+        {
+          "name": "mentions_iam_prereq",
+          "description": "LLM mentions IAM role ARN must be registered via Atlas Cloud Provider Access",
+          "type": "contains"
+        },
+        {
+          "name": "valid_s3_emit_structure",
+          "description": "$emit has connectionName, bucket, and path fields",
+          "type": "structural"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "prompt": "I have an HTTPS connection called my-api pointing to a REST endpoint. I want to create a processor that uses my-api as the source to read data from the API and write it to my-atlas cluster. Show me the pipeline.",
+      "expected_output": "Must explain HTTPS cannot be used as $source. Should suggest proper sources (Kafka, Cluster change stream) with HTTPS as mid-pipeline enrichment.",
+      "assertions": [
+        {
+          "name": "explains_https_not_source",
+          "description": "LLM explains that HTTPS connections cannot be used as $source",
+          "type": "contains"
+        },
+        {
+          "name": "no_https_in_source",
+          "description": "LLM does NOT provide a pipeline with an HTTPS connection in $source",
+          "type": "absence"
+        },
+        {
+          "name": "suggests_alternative_source",
+          "description": "LLM suggests a valid source type (Kafka, Cluster change stream) instead",
+          "type": "contains"
+        },
+        {
+          "name": "explains_https_capabilities",
+          "description": "LLM explains what HTTPS connections CAN do (mid-pipeline $https enrichment or as a sink)",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "prompt": "I have a workspace with my-kafka (Kafka), my-atlas (Cluster), and enrichment-api (Https) connections. Create a processor that reads from Kafka topic 'orders', calls the enrichment API at path '/v1/enrich' (POST) to add risk scores, then writes to Atlas db 'shop' collection 'scored_orders'. Show me the pipeline JSON.",
+      "expected_output": "Must include $https with connectionName, path, method, as, and onError: 'dlq'. API auth in connection settings not pipeline.",
+      "assertions": [
+        {
+          "name": "https_has_required_fields",
+          "description": "$https stage includes connectionName, path, method (POST), and 'as' field",
+          "type": "structural"
+        },
+        {
+          "name": "https_has_onerror_dlq",
+          "description": "$https stage includes onError: 'dlq' (not 'fail' or missing)",
+          "type": "structural"
+        },
+        {
+          "name": "no_hardcoded_auth",
+          "description": "LLM does NOT hardcode API keys/auth headers in the pipeline (should be in connection settings)",
+          "type": "absence"
+        },
+        {
+          "name": "valid_pipeline_structure",
+          "description": "Pipeline has $source (Kafka), $https enrichment, and $merge to Atlas",
+          "type": "structural"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "prompt": "I have my-kinesis-in (Kinesis) and my-kinesis-out (Kinesis) connections. Create a processor that reads from Kinesis stream 'clickstream-raw', filters for events where action='purchase', and writes to Kinesis stream 'purchases'. Show me the pipeline JSON.",
+      "expected_output": "Must use 'stream' (not 'topic') for Kinesis $source and $emit. $emit must include partitionKey. Must mention IAM prereq.",
+      "assertions": [
+        {
+          "name": "source_uses_stream_not_topic",
+          "description": "Kinesis $source uses 'stream' field, NOT 'topic' or 'streamName'",
+          "type": "structural"
+        },
+        {
+          "name": "emit_uses_stream_not_topic",
+          "description": "Kinesis $emit uses 'stream' field, NOT 'topic'",
+          "type": "structural"
+        },
+        {
+          "name": "emit_has_partition_key",
+          "description": "$emit includes a 'partitionKey' field (required for Kinesis)",
+          "type": "structural"
+        },
+        {
+          "name": "mentions_iam_prereq",
+          "description": "LLM mentions IAM role ARN must be registered via Atlas Cloud Provider Access",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "prompt": "I have my-kafka (Kafka), my-atlas (Cluster), and my-lambda (AWSLambda) connections. Create a processor that reads from Kafka topic 'transactions', calls my Lambda function 'fraud-scorer' to get a fraud score for each transaction, then writes scored transactions to Atlas db 'finance' collection 'scored_transactions'. Show me the pipeline.",
+      "expected_output": "Must use $externalFunction (not $emit) for Lambda. Mid-pipeline can be sync or async. Must include onError: 'dlq'.",
+      "assertions": [
+        {
+          "name": "uses_external_function_not_emit",
+          "description": "Uses $externalFunction for Lambda, NOT $emit",
+          "type": "structural"
+        },
+        {
+          "name": "has_required_fields",
+          "description": "$externalFunction includes connectionName, functionName, execution, as, and onError",
+          "type": "structural"
+        },
+        {
+          "name": "onerror_is_dlq",
+          "description": "$externalFunction has onError: 'dlq'",
+          "type": "structural"
+        },
+        {
+          "name": "terminal_sink_is_merge",
+          "description": "Final stage is $merge to Atlas (Lambda is mid-pipeline, not the terminal sink)",
+          "type": "structural"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "prompt": "I want to send all processed events to my Lambda function as the final destination. I have my-kafka (Kafka) and my-lambda (AWSLambda) connections. Create a processor that reads from Kafka topic 'alerts' and sends each alert to Lambda function 'alert-handler'. Show me the pipeline.",
+      "expected_output": "Must use $externalFunction with execution: 'async' (sync is invalid for sink). Must mention IAM prereq.",
+      "assertions": [
+        {
+          "name": "uses_external_function_not_emit",
+          "description": "Uses $externalFunction as terminal stage, NOT $emit for Lambda",
+          "type": "structural"
+        },
+        {
+          "name": "execution_is_async",
+          "description": "$externalFunction has execution: 'async' (sync is NOT valid for sink/terminal stage)",
+          "type": "structural"
+        },
+        {
+          "name": "explains_async_requirement",
+          "description": "LLM explains that $externalFunction as a sink must use async execution",
+          "type": "contains"
+        },
+        {
+          "name": "mentions_iam_prereq",
+          "description": "LLM mentions IAM role ARN must be registered via Atlas Cloud Provider Access",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "prompt": "I need to set up Avro schema validation for my Kafka connection. I have a Confluent Schema Registry at https://schema-registry.example.com. How do I create the schema registry connection in workspace dev-streams (project 65094f059e0776665611598b)?",
+      "expected_output": "connectionType must be 'SchemaRegistry' (not 'Kafka'). Must include provider, schemaRegistryUrls, and auth config.",
+      "assertions": [
+        {
+          "name": "correct_connection_type",
+          "description": "Uses connectionType 'SchemaRegistry', NOT 'Kafka'",
+          "type": "structural"
+        },
+        {
+          "name": "includes_provider",
+          "description": "Config includes provider field (e.g., 'CONFLUENT')",
+          "type": "structural"
+        },
+        {
+          "name": "includes_schema_registry_urls",
+          "description": "Config includes schemaRegistryUrls with the registry URL",
+          "type": "structural"
+        },
+        {
+          "name": "mentions_auth_types",
+          "description": "LLM mentions authentication options: USER_INFO (explicit credentials) or SASL_INHERIT (inherit from Kafka connection)",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "prompt": "I need a single processor that reads from Kafka topic 'events', enriches each event with a $lookup to Atlas, then writes the enriched events to BOTH an Atlas collection AND a Kafka topic. Show me the pipeline for workspace dev-streams (project 65094f059e0776665611598b).",
+      "expected_output": "Must explain single-sink constraint and propose chained processors (two separate pipelines).",
+      "assertions": [
+        {
+          "name": "explains_single_sink_constraint",
+          "description": "LLM explains that a single pipeline can only have ONE terminal sink ($merge or $emit), not both",
+          "type": "contains"
+        },
+        {
+          "name": "proposes_chained_processors",
+          "description": "LLM proposes two separate processors (chained pattern) to achieve dual output",
+          "type": "contains"
+        },
+        {
+          "name": "shows_both_pipelines",
+          "description": "LLM shows both processor pipelines \u2014 one writing to Atlas, one to Kafka",
+          "type": "structural"
+        },
+        {
+          "name": "explains_intermediate",
+          "description": "LLM explains the intermediate connection pattern (Kafka-as-intermediate or Atlas-as-intermediate)",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "prompt": "I want to add schema validation to my processor pipeline. If a document doesn't match the expected schema, I want the processor to reject it with an error. Here's what I have so far: [{\"$source\": {\"connectionName\": \"my-kafka\", \"topic\": \"events\"}}, {\"$merge\": {\"into\": {\"connectionName\": \"my-atlas\", \"db\": \"app\", \"coll\": \"events\"}}}]. Add a $validate stage before the $merge.",
+      "expected_output": "Must use validationAction: 'dlq' (not 'error'). Error crashes the processor. Must include $jsonSchema.",
+      "assertions": [
+        {
+          "name": "uses_dlq_not_error",
+          "description": "$validate uses validationAction: 'dlq', NOT 'error'",
+          "type": "structural"
+        },
+        {
+          "name": "explains_error_crashes",
+          "description": "LLM explains that validationAction: 'error' will crash the processor and should not be used",
+          "type": "contains"
+        },
+        {
+          "name": "includes_json_schema",
+          "description": "$validate includes a validator with $jsonSchema",
+          "type": "structural"
+        },
+        {
+          "name": "corrects_user_request",
+          "description": "LLM corrects the user's request to 'reject with an error' by explaining why 'dlq' is the safe choice",
+          "type": "contains"
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "name": "mongosh inspection",
+      "prompt": "I'm connected to my Atlas Stream Processing workspace via mongosh. My MCP tools aren't available right now. I need to see what connections are configured, which processors are currently running, and get a health snapshot of one of them. What mongosh commands do I use?",
+      "expected_output": "Must use sp.listConnections(), sp.listStreamProcessors(), and sp.stats(). Must NOT suggest standard MongoDB shell commands like db.listCollections().",
+      "assertions": [
+        {
+          "name": "uses_list_connections",
+          "description": "Uses sp.listConnections() to list configured connections",
+          "type": "contains"
+        },
+        {
+          "name": "uses_list_processors",
+          "description": "Uses sp.listStreamProcessors() to list deployed processors",
+          "type": "contains"
+        },
+        {
+          "name": "mentions_sp_stats",
+          "description": "Mentions sp.stats() for processor health and statistics",
+          "type": "contains"
+        },
+        {
+          "name": "no_wrong_commands",
+          "description": "Does NOT suggest standard MongoDB shell commands (db.listCollections(), show collections, db.getCollectionNames()) that would not work in a streams workspace",
+          "type": "absence"
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "name": "no-tools pipeline test",
+      "prompt": "I want to quickly test if my new pipeline logic works \u2014 I need to filter Kafka topic 'orders' on connection my-kafka for amount > 500 and see what documents come out. Can you help me run this? Note: the atlas-streams-build tool is not available in this session.",
+      "expected_output": "Should suggest sp.process() in mongosh as the ephemeral testing path. Should NOT suggest deploying a processor. Must show a sp.process() example with the correct pipeline.",
+      "assertions": [
+        {
+          "name": "suggests_sp_process",
+          "description": "Proactively suggests sp.process() in mongosh as the way to test without deploying",
+          "type": "contains"
+        },
+        {
+          "name": "shows_sp_process_example",
+          "description": "Shows an actual sp.process() call with $source (my-kafka, topic: orders) and $match (amount > 500)",
+          "type": "structural"
+        },
+        {
+          "name": "mentions_ephemeral_free",
+          "description": "Mentions sp.process() is ephemeral (no processor deployed) and/or free (no billing)",
+          "type": "contains"
+        },
+        {
+          "name": "no_false_tool_call",
+          "description": "Does NOT attempt to call atlas-streams-build or atlas-streams-manage as if they exist",
+          "type": "absence"
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "name": "no-tools config fix",
+      "prompt": "I just set up the MongoDB MCP server but I don't see any atlas-streams tools in my Claude session. I need to create a connection to my Kafka cluster and deploy a processor. What should I do?",
+      "expected_output": "Must diagnose previewFeatures: ['streams'] as the missing config. Must show the config fix. Should offer Atlas CLI as interim while user fixes the config.",
+      "assertions": [
+        {
+          "name": "diagnoses_preview_features",
+          "description": "Identifies previewFeatures: [\"streams\"] as the likely missing MCP server config causing the tools to be absent",
+          "type": "contains"
+        },
+        {
+          "name": "shows_config_fix",
+          "description": "Shows the specific JSON config change needed to add previewFeatures: [\"streams\"] to the MCP server settings",
+          "type": "contains"
+        },
+        {
+          "name": "offers_cli_interim",
+          "description": "Offers Atlas CLI (atlas streams commands) as an interim option while the user fixes the MCP config",
+          "type": "contains"
+        },
+        {
+          "name": "no_false_tool_call",
+          "description": "Does NOT attempt to call atlas-streams-build or other atlas-streams-* tools as if they exist",
+          "type": "absence"
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "name": "CLI list processors",
+      "prompt": "My MCP server isn't connecting. I need to check what processors are running in workspace prod-streams (project 65094f059e0776665611598b) and see the pipeline definition for a specific one. How can I do this without the MCP tools?",
+      "expected_output": "Must use correct atlas streams processors list --instance syntax. Must use --instance flag (not --workspace). Must show the describe command for pipeline details.",
+      "assertions": [
+        {
+          "name": "correct_list_command",
+          "description": "Uses 'atlas streams processors list' with correct subcommand structure (not 'atlas stream' or wrong verb)",
+          "type": "contains"
+        },
+        {
+          "name": "uses_instance_flag",
+          "description": "Uses '--instance prod-streams' flag (NOT '--workspace' or other flag name)",
+          "type": "contains"
+        },
+        {
+          "name": "includes_project_id",
+          "description": "Includes '--projectId 65094f059e0776665611598b' in the commands",
+          "type": "contains"
+        },
+        {
+          "name": "shows_describe_command",
+          "description": "Shows 'atlas streams processors describe <name> --instance prod-streams' for getting pipeline details",
+          "type": "contains"
+        }
+      ]
+    }
+  ]
+}

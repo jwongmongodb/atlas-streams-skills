@@ -1,0 +1,45 @@
+{
+  "eval_id": 1,
+  "eval_name": "dollar-now-trap",
+  "prompt": "I have a workspace called analytics-ws in project 65094f059e0776665611598b with connections my-kafka (Kafka) and my-atlas (Cluster). Create a processor that reads from Kafka topic 'page-views', adds a 'processed_at' field with the current timestamp to each document, and writes to Atlas collection 'enriched_views' in database 'analytics'. Don't call the build tool, just show me the pipeline JSON.",
+  "assertions": [
+    {
+      "name": "no_dollar_now",
+      "description": "Pipeline does NOT contain $$NOW anywhere",
+      "critical": true,
+      "reason": "$$NOW is not a valid system variable in Atlas Stream Processing. Using it will cause the processor to fail at runtime."
+    },
+    {
+      "name": "uses_stream_meta_arrivalTime",
+      "description": "Uses _stream_meta.arrivalTime or _stream_meta.sourceTimestamp instead of $$NOW",
+      "critical": true
+    },
+    {
+      "name": "valid_pipeline_structure",
+      "description": "Pipeline has $source (Kafka with topic), $addFields transformation, and $merge to Atlas"
+    },
+    {
+      "name": "explains_why_no_dollar_now",
+      "description": "Explicitly explains WHY $$NOW is invalid in stream processing",
+      "critical": true
+    }
+  ],
+  "common_mistakes": [
+    {
+      "mistake": "Using $$NOW in $addFields",
+      "error": "Processor fails to start with 'invalid system variable $$NOW'",
+      "fix": "Use {\"$toDate\": \"$_stream_meta.arrivalTime\"} for processing time or \"$_stream_meta.sourceTimestamp\" for event time"
+    },
+    {
+      "mistake": "Using new Date() or ISODate()",
+      "error": "These are mongosh JavaScript expressions, not valid aggregation expressions",
+      "fix": "Use _stream_meta.arrivalTime which is a document field available in every event"
+    }
+  ],
+  "expected_pipeline": [
+    {"$source": {"connectionName": "my-kafka", "topic": "page-views"}},
+    {"$addFields": {"processed_at": {"$toDate": "$_stream_meta.arrivalTime"}}},
+    {"$merge": {"into": {"connectionName": "my-atlas", "db": "analytics", "coll": "enriched_views"}}}
+  ],
+  "skill_reference": "SKILL.md line ~130: '$$NOW is NOT available in ASP. Use _stream_meta.arrivalTime (processing time) or _stream_meta.sourceTimestamp (event time from Kafka)'"
+}

@@ -1,0 +1,50 @@
+{
+  "eval_id": 11,
+  "eval_name": "https-source-trap",
+  "prompt": "I have an HTTPS connection called my-api pointing to a REST endpoint. I want to create a processor that uses my-api as the source to read data from the API and write it to my-atlas cluster.",
+  "assertions": [
+    {
+      "name": "explains_https_not_source",
+      "description": "Explains that HTTPS connections CANNOT be used as $source",
+      "critical": true,
+      "reason": "HTTPS is not a streaming source — it is a request/response protocol and cannot be polled as a $source"
+    },
+    {
+      "name": "no_https_in_source",
+      "description": "Does NOT provide a pipeline with an HTTPS connection in $source",
+      "critical": true
+    },
+    {
+      "name": "suggests_alternative_source",
+      "description": "Suggests a valid source type: Kafka topic or Atlas Cluster change stream"
+    },
+    {
+      "name": "explains_https_capabilities",
+      "description": "Explains what HTTPS connections CAN do: mid-pipeline $https enrichment or as a sink"
+    }
+  ],
+  "connection_capability_table": {
+    "Kafka": {"source": true, "sink": true, "mid_pipeline": false},
+    "Cluster": {"source": true, "sink": true, "mid_pipeline": false},
+    "S3": {"source": false, "sink": true, "mid_pipeline": false},
+    "Https": {"source": false, "sink": true, "mid_pipeline": true, "stage": "$https"},
+    "AWSKinesisDataStreams": {"source": true, "sink": true, "mid_pipeline": false},
+    "AWSLambda": {"source": false, "sink": true, "mid_pipeline": true, "stage": "$externalFunction"}
+  },
+  "common_mistakes": [
+    {
+      "mistake": "Creating a pipeline with $source: {connectionName: 'my-api'}",
+      "error": "Processor fails immediately — HTTPS is not a valid $source type",
+      "fix": "Use Kafka or Atlas Cluster as $source, then use $https mid-pipeline to enrich with the API"
+    }
+  ],
+  "correct_pattern": {
+    "description": "If you want to enrich with an HTTP API, use it mid-pipeline",
+    "pipeline": [
+      {"$source": {"connectionName": "my-kafka", "topic": "events"}},
+      {"$https": {"connectionName": "my-api", "path": "/enrich", "method": "POST", "as": "apiResult", "onError": "dlq"}},
+      {"$merge": {"into": {"connectionName": "my-atlas", "db": "mydb", "coll": "mycoll"}}}
+    ]
+  },
+  "skill_reference": "SKILL.md: 'HTTPS connections as $source — HTTPS is for $https enrichment only, not streaming ingestion'"
+}

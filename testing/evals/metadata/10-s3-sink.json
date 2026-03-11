@@ -1,0 +1,61 @@
+{
+  "eval_id": 10,
+  "eval_name": "s3-sink",
+  "prompt": "I have a workspace with my-kafka (Kafka) and my-s3 (S3) connections. Create a processor that reads from Kafka topic 'logs', and writes all logs to S3 bucket 'data-lake' under the prefix 'raw/logs/' as JSON files.",
+  "assertions": [
+    {
+      "name": "uses_path_not_prefix",
+      "description": "S3 $emit uses 'path' field, NOT 'prefix'",
+      "critical": true,
+      "reason": "Using 'prefix' instead of 'path' is the most common S3 sink mistake and causes processor failure"
+    },
+    {
+      "name": "includes_output_format",
+      "description": "$emit includes config.outputFormat (e.g., {name: 'json'})",
+      "critical": true
+    },
+    {
+      "name": "mentions_iam_prereq",
+      "description": "Mentions IAM role ARN must be registered via Atlas Cloud Provider Access",
+      "critical": true
+    },
+    {
+      "name": "valid_s3_emit_structure",
+      "description": "$emit has connectionName, bucket, and path fields"
+    }
+  ],
+  "expected_pipeline": [
+    {"$source": {"connectionName": "my-kafka", "topic": "logs"}},
+    {
+      "$emit": {
+        "connectionName": "my-s3",
+        "bucket": "data-lake",
+        "path": "raw/logs/{$year}/{$month}/{$day}",
+        "config": {"outputFormat": {"name": "json"}}
+      }
+    }
+  ],
+  "common_mistakes": [
+    {
+      "mistake": "Using 'prefix' instead of 'path' in $emit",
+      "error": "Processor fails with field validation error — 'prefix' is not a valid S3 $emit field",
+      "fix": "Use 'path' for the S3 destination path"
+    },
+    {
+      "mistake": "Omitting config.outputFormat",
+      "error": "Processor may use default format or fail",
+      "fix": "Always specify outputFormat: {name: 'json'} (or 'bson', 'csv')"
+    },
+    {
+      "mistake": "Using $merge instead of $emit for S3",
+      "error": "$merge is for Atlas Cluster connections only",
+      "fix": "Use $emit for S3, Kafka, and Kinesis sinks"
+    },
+    {
+      "mistake": "Not mentioning IAM role ARN prerequisite",
+      "error": "S3 connection creation fails if IAM role is not registered via Cloud Provider Access",
+      "fix": "Always remind users to register IAM role ARN in Atlas before creating the S3 connection"
+    }
+  ],
+  "skill_reference": "SKILL.md: '$emit (S3): use path (NOT prefix). config.outputFormat required. IAM role ARN must be registered via Atlas Cloud Provider Access.'"
+}

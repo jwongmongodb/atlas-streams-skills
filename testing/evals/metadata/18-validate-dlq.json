@@ -1,0 +1,54 @@
+{
+  "eval_id": 18,
+  "eval_name": "validate-dlq",
+  "prompt": "I want to add schema validation to my processor pipeline. If a document doesn't match the expected schema, I want the processor to reject it with an error.",
+  "assertions": [
+    {
+      "name": "uses_dlq_not_error",
+      "description": "$validate uses validationAction: 'dlq', NOT 'error'",
+      "critical": true,
+      "reason": "validationAction: 'error' crashes the entire processor on the first invalid document"
+    },
+    {
+      "name": "explains_error_crashes",
+      "description": "Explains that validationAction: 'error' will crash the processor",
+      "critical": true
+    },
+    {
+      "name": "includes_json_schema",
+      "description": "$validate includes a validator with $jsonSchema"
+    },
+    {
+      "name": "corrects_user_request",
+      "description": "Corrects the user's request to 'reject with an error' by explaining why 'dlq' is the safe choice"
+    }
+  ],
+  "correct_stage": {
+    "$validate": {
+      "validator": {
+        "$jsonSchema": {
+          "bsonType": "object",
+          "required": ["field1", "field2"],
+          "properties": {
+            "field1": {"bsonType": "string"},
+            "field2": {"bsonType": "number"}
+          }
+        }
+      },
+      "validationAction": "dlq"
+    }
+  },
+  "common_mistakes": [
+    {
+      "mistake": "Using validationAction: 'error'",
+      "error": "The FIRST invalid document immediately stops the processor with an unrecoverable error",
+      "fix": "Use validationAction: 'dlq' — invalid documents are routed to the dead letter queue while valid ones continue processing"
+    },
+    {
+      "mistake": "Omitting the $jsonSchema validator",
+      "error": "$validate requires a validator object with a $jsonSchema schema",
+      "fix": "Always include validator: {$jsonSchema: {...}} in the $validate stage"
+    }
+  ],
+  "skill_reference": "SKILL.md: '$validate with validationAction: \"error\" — crashes processor; use \"dlq\" instead'"
+}

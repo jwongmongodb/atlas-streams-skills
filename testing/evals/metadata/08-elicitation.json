@@ -1,0 +1,52 @@
+{
+  "eval_id": 8,
+  "eval_name": "elicitation",
+  "prompt": "Create a Kafka connection called prod-kafka in workspace dev-streams (project 65094f059e0776665611598b) for my Confluent Cloud cluster.",
+  "assertions": [
+    {
+      "name": "does_not_ask_for_password",
+      "description": "Does NOT ask the user for their Kafka password or SASL credentials",
+      "critical": true,
+      "reason": "The MCP tool's elicitation mechanism collects sensitive fields. Asking upfront defeats the purpose and creates security risk."
+    },
+    {
+      "name": "does_not_ask_for_bootstrap_servers",
+      "description": "Does NOT ask the user for bootstrap server addresses before calling the tool",
+      "critical": true,
+      "reason": "Bootstrap servers are collected by tool elicitation, not the LLM"
+    },
+    {
+      "name": "calls_build_tool",
+      "description": "Calls or proposes atlas-streams-build with resource='connection', connectionType='Kafka'",
+      "critical": true
+    },
+    {
+      "name": "trusts_elicitation",
+      "description": "Mentions that the tool will collect missing fields, or proceeds without gathering sensitive config first"
+    }
+  ],
+  "expected_tool_call": {
+    "tool": "atlas-streams-build",
+    "parameters": {
+      "projectId": "65094f059e0776665611598b",
+      "workspaceName": "dev-streams",
+      "resource": "connection",
+      "connectionType": "Kafka",
+      "connectionName": "prod-kafka"
+    },
+    "note": "Tool elicitation handles bootstrapServers, authentication, and password — do NOT include these in the call"
+  },
+  "common_mistakes": [
+    {
+      "mistake": "Asking 'What are your bootstrap servers?' before calling the tool",
+      "error": "Creates unnecessary friction and exposes sensitive infrastructure details in chat",
+      "fix": "Call atlas-streams-build directly. The tool will prompt for missing required fields via elicitation."
+    },
+    {
+      "mistake": "Including placeholder values for bootstrap servers in the tool call",
+      "error": "Tool call fails with validation error for placeholder values",
+      "fix": "Omit fields that will be elicited. The tool handles collection of bootstrapServers, username, password."
+    }
+  ],
+  "skill_reference": "SKILL.md: 'Do NOT ask the user for: passwords/secrets, bootstrap servers, connection strings. Let MCP tool elicitation collect these.'"
+}

@@ -1,0 +1,56 @@
+{
+  "eval_id": 7,
+  "eval_name": "parallelism-calc",
+  "prompt": "I have a pipeline with $lookup (parallelism: 4), $https (parallelism: 3), and $merge (parallelism: 4). What's the minimum tier I need for this processor?",
+  "assertions": [
+    {
+      "name": "shows_parallelism_formula",
+      "description": "Shows the formula: sum of (parallelism - 1) for each stage with parallelism > 1",
+      "critical": true,
+      "reason": "Without the formula, the answer cannot be verified or understood"
+    },
+    {
+      "name": "calculates_eight",
+      "description": "Arrives at 8 as the total: (4-1) + (3-1) + (4-1) = 3 + 2 + 3 = 8",
+      "critical": true
+    },
+    {
+      "name": "recommends_sp10",
+      "description": "Recommends SP10 as the minimum tier (SP10 supports max parallelism of 8)",
+      "critical": true
+    },
+    {
+      "name": "references_tier_limit",
+      "description": "References the tier's max parallelism limit to justify the recommendation"
+    }
+  ],
+  "calculation": {
+    "formula": "minimum_tier = sum(parallelism - 1) for all stages where parallelism > 1",
+    "breakdown": [
+      {"stage": "$lookup", "parallelism": 4, "excess": 3},
+      {"stage": "$https", "parallelism": 3, "excess": 2},
+      {"stage": "$merge", "parallelism": 4, "excess": 3}
+    ],
+    "total_excess": 8,
+    "minimum_tier": "SP10",
+    "sp10_max_parallelism": 8
+  },
+  "tier_table": {
+    "SP10": {"max_parallelism": 8},
+    "SP30": {"max_parallelism": 16},
+    "SP50": {"max_parallelism": 64}
+  },
+  "common_mistakes": [
+    {
+      "mistake": "Adding raw parallelism values (4+3+4=11)",
+      "error": "Overestimates tier requirement — recommends SP30 when SP10 suffices",
+      "fix": "Subtract 1 from each stage's parallelism before summing"
+    },
+    {
+      "mistake": "Using only the max parallelism value (max=4)",
+      "error": "Underestimates — SP3 or SP5 is incorrectly recommended",
+      "fix": "Sum the excess parallelism across ALL stages with parallelism > 1"
+    }
+  ],
+  "skill_reference": "SKILL.md: 'Parallelism formula: minimum tier = sum of (parallelism - 1) for all stages where parallelism > 1'"
+}
